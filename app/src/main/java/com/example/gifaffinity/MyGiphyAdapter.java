@@ -1,7 +1,9 @@
 package com.example.gifaffinity;
 
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.BitmapFactory;
+import android.net.Uri;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -56,7 +58,7 @@ class MyGiphyAdapter extends PagedListAdapter<MyGiphyAdapter.Gif, MyGiphyAdapter
 
     @Override
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
-        Gif gif = getItem(position);
+        final Gif gif = getItem(position);
         Log.d(MainActivity.TAG, "onBindViewHolder(position " + position + ", gif " + gif + ")");
         if (gif != null) {
             holder.text.setVisibility(View.GONE);
@@ -66,6 +68,16 @@ class MyGiphyAdapter extends PagedListAdapter<MyGiphyAdapter.Gif, MyGiphyAdapter
                     .placeholder(R.drawable.ic_launcher_foreground)
                     .fitCenter()
                     .into(holder.image);
+            // ZZZ TODO: Not sure if we should use this
+            holder.image.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    Intent gifViewIntent = new Intent(context, GifViewActivity.class);
+                    gifViewIntent.setData(Uri.parse(gif.fixedHeight.getUrl()));
+                    gifViewIntent.putExtra("title", gif.name);
+                    context.startActivity(gifViewIntent);
+                }
+            });
         } else {
             holder.text.setText(Integer.toString(position));
             holder.image.setVisibility(View.GONE);

@@ -19,7 +19,7 @@ import android.view.MenuItem;
 import com.example.gifaffinity.MyGiphyAdapter.Gif;
 
 public class MainActivity extends AppCompatActivity {
-    static final String TAG = "GifAffinity";
+    static final String TAG = "GifAffinity.Main";
 
     private RecyclerView recyclerView;
 
