@@ -4,7 +4,6 @@ import android.os.Bundle;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.lifecycle.LifecycleOwner;
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.Observer;
 import androidx.paging.LivePagedListBuilder;
@@ -39,8 +38,8 @@ public class MainActivity extends AppCompatActivity {
 
         recyclerView.setLayoutManager(new StaggeredGridLayoutManager(2, StaggeredGridLayoutManager.VERTICAL));
         final MyGiphyAdapter adapter = new MyGiphyAdapter(this);
-        PagedList.Config config = new PagedList.Config.Builder().setPageSize(25).build();
-        MyGiphyAdapter.GifDataSourceFactory factory = new MyGiphyAdapter.GifDataSourceFactory();
+        PagedList.Config config = new PagedList.Config.Builder().setPageSize(75).build();
+        MyGiphyAdapter.GifDataSourceFactory factory = new MyGiphyAdapter.GifDataSourceFactory(this);
         LiveData gifs = new LivePagedListBuilder(factory, config).build();
         gifs.observe(this, new Observer<PagedList<Gif>>() {
             @Override

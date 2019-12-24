@@ -2,7 +2,10 @@ package com.example.gifaffinity;
 
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.util.Log;
 import android.view.LayoutInflater;
@@ -19,17 +22,27 @@ import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
+import com.squareup.okhttp.Call;
+import com.squareup.okhttp.Callback;
+import com.squareup.okhttp.OkHttpClient;
+import com.squareup.okhttp.Request;
+import com.squareup.okhttp.Response;
+import com.squareup.okhttp.ResponseBody;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
 import at.mukprojects.giphy4j.Giphy;
+import at.mukprojects.giphy4j.entity.giphy.GiphyContainer;
 import at.mukprojects.giphy4j.entity.giphy.GiphyData;
 import at.mukprojects.giphy4j.entity.giphy.GiphyImage;
 import at.mukprojects.giphy4j.entity.search.SearchFeed;
 import at.mukprojects.giphy4j.exception.GiphyException;
 
 class MyGiphyAdapter extends PagedListAdapter<MyGiphyAdapter.Gif, MyGiphyAdapter.ViewHolder> {
+    private static final String TAG = "GifAffinity.Adapter";
+
     private static final String GIPHY_API_KEY = "p7ToW673BjPcLL4AhMMe3p5W1gsxQ6dq";
     Context context;
 
@@ -63,12 +76,27 @@ class MyGiphyAdapter extends PagedListAdapter<MyGiphyAdapter.Gif, MyGiphyAdapter
         if (gif != null) {
             holder.text.setVisibility(View.GONE);
             holder.image.setVisibility(View.VISIBLE);
+            Drawable placeholderDrawable = null;
+            byte[] thumbnailBytes;
+            synchronized (gif) {
+                thumbnailBytes = gif.thumbnailBytes;
+            }
+            if (gif.thumbnailBytes != null) {
+                Bitmap thumbnailBitmap = BitmapFactory.decodeByteArray(gif.thumbnailBytes, 0, gif.thumbnailBytes.length);
+                placeholderDrawable = new BitmapDrawable(context.getResources(), thumbnailBitmap);
+            } else {
+                if (gif.call != null) gif.call.cancel();
+                int width = Integer.parseInt(gif.fixedHeight.getWidth());
+                int height = Integer.parseInt(gif.fixedHeight.getHeight());
+                Bitmap placeholder = Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565);
+                placeholder.eraseColor(0xFFFFFFFF);
+                placeholderDrawable = new BitmapDrawable(placeholder);
+            }
             Glide.with(context)
                     .load(gif.fixedHeight.getUrl())
-                    .placeholder(R.drawable.ic_launcher_foreground)
+                    .placeholder(placeholderDrawable)
                     .fitCenter()
                     .into(holder.image);
-            // ZZZ TODO: Not sure if we should use this
             holder.image.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
@@ -79,7 +107,8 @@ class MyGiphyAdapter extends PagedListAdapter<MyGiphyAdapter.Gif, MyGiphyAdapter
                 }
             });
         } else {
-            holder.text.setText(Integer.toString(position));
+            // This should never happen
+            holder.text.setText("Error at position " + Integer.toString(position));
             holder.image.setVisibility(View.GONE);
             holder.text.setVisibility(View.VISIBLE);
         }
@@ -102,6 +131,9 @@ class MyGiphyAdapter extends PagedListAdapter<MyGiphyAdapter.Gif, MyGiphyAdapter
         GiphyImage fixedHeight;
         String name;
         int position;
+        Call call; // okhttp call
+        byte[] thumbnailBytes;
+
         Gif(int position) {
             this.position = position;
         }
@@ -114,10 +146,13 @@ class MyGiphyAdapter extends PagedListAdapter<MyGiphyAdapter.Gif, MyGiphyAdapter
     }
 
     public static class GifDataSource extends PositionalDataSource<Gif> {
+        Context context;
         Giphy giphy;
+        OkHttpClient client = new OkHttpClient();
 
-        GifDataSource() {
+        GifDataSource(Context context) {
             this.giphy = new Giphy(GIPHY_API_KEY);
+            this.context = context;
         }
 
         /**
@@ -183,19 +218,77 @@ class MyGiphyAdapter extends PagedListAdapter<MyGiphyAdapter.Gif, MyGiphyAdapter
             for (GiphyData giphyData : feed.getDataList()) {
                 Gif gif = new Gif(pos);
                 gif.position = pos++; // TODO: Is this still needed?
-                gif.thumbnail = giphyData.getImages().getFixedHeightStill();
+                gif.thumbnail = getSmallestStill(giphyData.getImages());
                 gif.fixedHeight = giphyData.getImages().getFixedHeight();
                 gifList.add(gif);
                 gif.name = giphyData.title;
+                gif.thumbnailBytes = null;
+                if (gif.thumbnail != null) loadThumbnail(gif);
             }
             return gifList;
+        }
+
+        private GiphyImage getSmallestStill(GiphyImage... gifs) {
+            int smallestSize = Integer.MAX_VALUE;
+            GiphyImage smallest = null;
+            for (GiphyImage gi : gifs) {
+                int size;
+                try {
+                    size = Integer.parseInt(gi.getSize());
+                } catch (Exception e) {
+                    size = Integer.MAX_VALUE;
+                }
+                if (size < smallestSize) {
+                    smallestSize = size;
+                    smallest = gi;
+                }
+            }
+            return smallest;
+        }
+
+        private GiphyImage getSmallestStill(GiphyContainer images) {
+            return getSmallestStill(
+                    images.getDownsizedStill(),
+                    images.getFixedHeightSmallStill(),
+                    images.getFixedHeightStill(),
+                    images.getFixedWidthSmallStill(),
+                    images.getFixedWidthStill()
+            );
+        }
+
+        public void loadThumbnail(final Gif gif) {
+            Request request = new Request.Builder().url(gif.thumbnail.getUrl()).build();
+            Call call = client.newCall(request);
+            gif.call = call;
+            call.enqueue(new Callback() {
+                public void onFailure(Request request, IOException e) {
+                    Log.e(TAG, "onFailure: " + e);
+                }
+                public void onResponse(Response response) {
+                    try {
+                        ResponseBody responseBody = response.body();
+                        if (!response.isSuccessful()) throw new IOException("Unexpected code " + response);
+                        synchronized (gif) {
+                            gif.thumbnailBytes = responseBody.bytes();
+                        }
+                    } catch (Exception e) {
+                        Log.e(TAG, "onResponse: " + e);
+                    }
+                }
+            });
         }
     }
 
     public static class GifDataSourceFactory extends DataSource.Factory<Integer, Gif> {
+        Context context;
+
+        public GifDataSourceFactory(Context context) {
+            this.context = context;
+        }
+
         @Override
         public DataSource<Integer, Gif> create() {
-            GifDataSource dataSource = new GifDataSource();
+            GifDataSource dataSource = new GifDataSource(context);
             return dataSource;
         }
     }
