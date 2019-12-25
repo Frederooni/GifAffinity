@@ -1,7 +1,3 @@
-rootProject.name='GIF Affinity' // What is this used for?
+rootProject.name='GIF Affinity' // Used by Android Studio
 
 include ':app'
-
-include ':Frederooni-Giphy4J'
-project(':Frederooni-Giphy4J').projectDir = new File('../Frederooni-Giphy4J')
-

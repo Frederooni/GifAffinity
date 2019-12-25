@@ -29,16 +29,14 @@ import com.squareup.okhttp.Request;
 import com.squareup.okhttp.Response;
 import com.squareup.okhttp.ResponseBody;
 
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
-
-import at.mukprojects.giphy4j.Giphy;
-import at.mukprojects.giphy4j.entity.giphy.GiphyContainer;
-import at.mukprojects.giphy4j.entity.giphy.GiphyData;
-import at.mukprojects.giphy4j.entity.giphy.GiphyImage;
-import at.mukprojects.giphy4j.entity.search.SearchFeed;
-import at.mukprojects.giphy4j.exception.GiphyException;
 
 class MyGiphyAdapter extends PagedListAdapter<MyGiphyAdapter.Gif, MyGiphyAdapter.ViewHolder> {
     private static final String TAG = "GifAffinity.Adapter";
@@ -86,14 +84,14 @@ class MyGiphyAdapter extends PagedListAdapter<MyGiphyAdapter.Gif, MyGiphyAdapter
                 placeholderDrawable = new BitmapDrawable(context.getResources(), thumbnailBitmap);
             } else {
                 if (gif.call != null) gif.call.cancel();
-                int width = Integer.parseInt(gif.fixedHeight.getWidth());
-                int height = Integer.parseInt(gif.fixedHeight.getHeight());
+                int width = gif.fixedHeight.width;
+                int height = gif.fixedHeight.height;
                 Bitmap placeholder = Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565);
                 placeholder.eraseColor(0xFFFFFFFF);
                 placeholderDrawable = new BitmapDrawable(placeholder);
             }
             Glide.with(context)
-                    .load(gif.fixedHeight.getUrl())
+                    .load(gif.fixedHeight.url)
                     .placeholder(placeholderDrawable)
                     .fitCenter()
                     .into(holder.image);
@@ -101,7 +99,7 @@ class MyGiphyAdapter extends PagedListAdapter<MyGiphyAdapter.Gif, MyGiphyAdapter
                 @Override
                 public void onClick(View v) {
                     Intent gifViewIntent = new Intent(context, GifViewActivity.class);
-                    gifViewIntent.setData(Uri.parse(gif.fixedHeight.getUrl()));
+                    gifViewIntent.setData(Uri.parse(gif.fixedHeight.url));
                     gifViewIntent.putExtra("title", gif.name);
                     context.startActivity(gifViewIntent);
                 }
@@ -126,9 +124,21 @@ class MyGiphyAdapter extends PagedListAdapter<MyGiphyAdapter.Gif, MyGiphyAdapter
         }
     };
 
+    static class ImageInfo {
+        String url;
+        int width;
+        int height;
+
+        ImageInfo(String url, int width, int height) {
+            this.url = url;
+            this.width = width;
+            this.height = height;
+        }
+    }
+
     static class Gif {
-        GiphyImage thumbnail;
-        GiphyImage fixedHeight;
+        ImageInfo thumbnail;
+        ImageInfo fixedHeight;
         String name;
         int position;
         Call call; // okhttp call
@@ -146,13 +156,39 @@ class MyGiphyAdapter extends PagedListAdapter<MyGiphyAdapter.Gif, MyGiphyAdapter
     }
 
     public static class GifDataSource extends PositionalDataSource<Gif> {
+        private static final String SEARCH_ENDPOINT = "https://api.giphy.com/v1/gifs/search";
+        private static final String TRENDING_ENDPOINT = "https://api.giphy.com/v1/gifs/trending";
+
         Context context;
-        Giphy giphy;
+        String endpoint;
         OkHttpClient client = new OkHttpClient();
 
         GifDataSource(Context context) {
-            this.giphy = new Giphy(GIPHY_API_KEY);
             this.context = context;
+            this.endpoint = TRENDING_ENDPOINT;
+        }
+
+        /*
+        public void changeEndpoint(String endpoint) {
+            this.endpoint = endpoint;
+            this.invalidate();
+        }
+        */
+
+        private JSONObject genericSearch(String... parameters) throws Exception {
+            String url = endpoint + "?api_key=" + GIPHY_API_KEY;
+            for (String param : parameters) {
+                if (param == null) continue;
+                String[] split = param.split("=", 2);
+                if (split == null || split.length != 2) continue;
+                if (split[0] == null || split[0].length() == 0) continue;
+                if (split[1] == null || split[1].length() == 0) continue;
+                url += "&" + split[0] + "=" + split[1];
+            }
+            Request request = new Request.Builder().url(url).build();
+            ResponseBody responseBody = client.newCall(request).execute().body();
+            JSONObject json = new JSONObject(responseBody.string());
+            return json;
         }
 
         /**
@@ -170,17 +206,25 @@ class MyGiphyAdapter extends PagedListAdapter<MyGiphyAdapter.Gif, MyGiphyAdapter
         public void loadInitial(@NonNull LoadInitialParams params, @NonNull LoadInitialCallback<Gif> callback) {
             try {
                 Log.d(MainActivity.TAG, "loadInitial: requestedLoadSize " + params.requestedLoadSize + " placeholdersEnabled " + params.placeholdersEnabled);
-                SearchFeed feed = giphy.trend("offset=0", "limit=" + params.requestedLoadSize, "rating=g");
-                int totalCount = feed.getPagination().getTotalCount();
-                Log.d(MainActivity.TAG, "loadInitial: count " + feed.getPagination().getCount());
+                JSONObject json = genericSearch("offset=0", "limit=" + params.requestedLoadSize, "rating=g");
+                int totalCount = getTotalCount(json);
+                int count = getCount(json);
+                Log.d(MainActivity.TAG, "loadInitial: count " + count);
                 Log.d(MainActivity.TAG, "loadInitial: totalCount " + totalCount);
-                List<Gif> gifList = loadGifList(0, feed);
-                Log.d(MainActivity.TAG, String.format("loadInitial: callback.onResult(%d gifs, pos 0, total count %d)", gifList.size(), totalCount));
+                List<Gif> gifList = loadGifList(0, json);
+                Log.d(TAG, String.format("loadInitial: callback.onResult(%d gifs, pos 0, total count %d)", gifList.size(), totalCount));
                 callback.onResult(gifList, 0, totalCount);
             } catch (Exception e) {
-                Log.e(MainActivity.TAG, "Error", e);
+                Log.e(TAG, "Error", e);
             }
+        }
 
+        private int getCount(JSONObject json) throws JSONException {
+            return json.getJSONObject("pagination").getInt("count");
+        }
+
+        private int getTotalCount(JSONObject json) throws JSONException {
+            return json.getJSONObject("pagination").getInt("total_count");
         }
 
         /**
@@ -199,65 +243,64 @@ class MyGiphyAdapter extends PagedListAdapter<MyGiphyAdapter.Gif, MyGiphyAdapter
         public void loadRange(@NonNull LoadRangeParams params, @NonNull LoadRangeCallback<Gif> callback) {
             Log.d(MainActivity.TAG, "loadAfter: startPosition " + params.startPosition + " loadSize " + params.loadSize);
             try {
-                SearchFeed feed = giphy.trend("offset=" + params.startPosition, "limit=" + params.loadSize, "rating=g");
-                int totalCount = feed.getPagination().getTotalCount();
-                int count = feed.getPagination().getCount();
+                JSONObject json = genericSearch("offset=" + params.startPosition, "limit=" + params.loadSize, "rating=g");
+                int totalCount = getTotalCount(json);
+                int count = getCount(json);
                 Log.d(MainActivity.TAG, "loadAfter: count " + count);
                 Log.d(MainActivity.TAG, "loadAfter: totalCount " + totalCount);
-                List<Gif> gifList = loadGifList(params.startPosition, feed);
+                List<Gif> gifList = loadGifList(params.startPosition, json);
                 Log.d(MainActivity.TAG, String.format("loadAfter: callback.onResult(%d gifs)", gifList.size()));
                 callback.onResult(gifList);
-            } catch (GiphyException e) {
-                e.printStackTrace();
+            } catch (Exception e) {
+                Log.e(TAG, "Error", e);
             }
         }
 
-        private List<Gif> loadGifList(int position, SearchFeed feed) {
+        private List<Gif> loadGifList(int position, JSONObject json) throws JSONException {
             ArrayList<Gif> gifList = new ArrayList<>();
             int pos = position;
-            for (GiphyData giphyData : feed.getDataList()) {
+            JSONArray dataArray = json.getJSONArray("data");
+            for (int i = 0; i < dataArray.length(); i++) {
+                JSONObject datum = (JSONObject) dataArray.get(i);
+                JSONObject images = datum.getJSONObject("images");
                 Gif gif = new Gif(pos);
                 gif.position = pos++; // TODO: Is this still needed?
-                gif.thumbnail = getSmallestStill(giphyData.getImages());
-                gif.fixedHeight = giphyData.getImages().getFixedHeight();
+                gif.thumbnail = getSmallestStill(images);
+                gif.fixedHeight = getImageInfo(images.getJSONObject("fixed_height"));
                 gifList.add(gif);
-                gif.name = giphyData.title;
+                gif.name = datum.getString("title");
                 gif.thumbnailBytes = null;
                 if (gif.thumbnail != null) loadThumbnail(gif);
             }
             return gifList;
         }
 
-        private GiphyImage getSmallestStill(GiphyImage... gifs) {
+        private ImageInfo getImageInfo(JSONObject image) throws JSONException {
+            if (image == null) return null;
+            return new ImageInfo(image.getString("url"), image.getInt("width"), image.getInt("height"));
+        }
+
+        private ImageInfo getSmallestStill(JSONObject images) throws JSONException {
             int smallestSize = Integer.MAX_VALUE;
-            GiphyImage smallest = null;
-            for (GiphyImage gi : gifs) {
-                int size;
-                try {
-                    size = Integer.parseInt(gi.getSize());
-                } catch (Exception e) {
-                    size = Integer.MAX_VALUE;
-                }
-                if (size < smallestSize) {
-                    smallestSize = size;
-                    smallest = gi;
+            JSONObject smallest = null;
+            Iterator<String> it = images.keys();
+            while (it.hasNext()) {
+                String key = it.next();
+                if (key.endsWith("_still")) {
+                    JSONObject image = images.optJSONObject(key);
+                    if (image == null) continue;
+                    int size = image.optInt("size", Integer.MAX_VALUE);
+                    if (size < smallestSize) {
+                        smallestSize = size;
+                        smallest = image;
+                    }
                 }
             }
-            return smallest;
+            return getImageInfo(smallest);
         }
 
-        private GiphyImage getSmallestStill(GiphyContainer images) {
-            return getSmallestStill(
-                    images.getDownsizedStill(),
-                    images.getFixedHeightSmallStill(),
-                    images.getFixedHeightStill(),
-                    images.getFixedWidthSmallStill(),
-                    images.getFixedWidthStill()
-            );
-        }
-
-        public void loadThumbnail(final Gif gif) {
-            Request request = new Request.Builder().url(gif.thumbnail.getUrl()).build();
+        void loadThumbnail(final Gif gif) {
+            Request request = new Request.Builder().url(gif.thumbnail.url).build();
             Call call = client.newCall(request);
             gif.call = call;
             call.enqueue(new Callback() {
