@@ -100,7 +100,7 @@ class MyGiphyAdapter extends PagedListAdapter<MyGiphyAdapter.Gif, MyGiphyAdapter
                 public void onClick(View v) {
                     Intent gifViewIntent = new Intent(context, GifViewActivity.class);
                     gifViewIntent.setData(Uri.parse(gif.fixedHeight.url));
-                    gifViewIntent.putExtra("title", gif.name);
+                    gifViewIntent.putExtra("title", gif.title);
                     context.startActivity(gifViewIntent);
                 }
             });
@@ -115,12 +115,17 @@ class MyGiphyAdapter extends PagedListAdapter<MyGiphyAdapter.Gif, MyGiphyAdapter
     static final DiffUtil.ItemCallback<Gif> DIFF_CALLBACK = new DiffUtil.ItemCallback<Gif>() {
         @Override
         public boolean areItemsTheSame(Gif oldItem, Gif newItem) {
-            return oldItem.position == newItem.position;
+            try {
+                return oldItem.id.equals(newItem.id);
+            } catch (Exception e) {
+                Log.e(TAG, "Unexpected error:", e);
+                return false;
+            }
         }
 
         @Override
         public boolean areContentsTheSame(Gif oldItem, Gif newItem) {
-            return oldItem.position == newItem.position;
+            return true;
         }
     };
 
@@ -137,46 +142,53 @@ class MyGiphyAdapter extends PagedListAdapter<MyGiphyAdapter.Gif, MyGiphyAdapter
     }
 
     static class Gif {
-        ImageInfo thumbnail;
+        ImageInfo thumbnail; // placeholder
+        byte[] thumbnailBytes; // bytes needed to create the placeholder still image
         ImageInfo fixedHeight;
-        String name;
-        int position;
+        String title; // title of the image
+        String id; // unique id for the image
         Call call; // okhttp call
-        byte[] thumbnailBytes;
 
-        Gif(int position) {
-            this.position = position;
+        Gif(String id) {
+            this.id = id;
         }
 
         @NonNull
         @Override
         public String toString() {
-            return name;
+            return title;
         }
     }
 
     public static class GifDataSource extends PositionalDataSource<Gif> {
         private static final String SEARCH_ENDPOINT = "https://api.giphy.com/v1/gifs/search";
         private static final String TRENDING_ENDPOINT = "https://api.giphy.com/v1/gifs/trending";
+        private final String rating;
+        private final String searchQuery;
 
         Context context;
         String endpoint;
         OkHttpClient client = new OkHttpClient();
 
-        GifDataSource(Context context) {
+        GifDataSource(Context context, String rating) {
             this.context = context;
             this.endpoint = TRENDING_ENDPOINT;
+            this.rating = rating;
+            this.searchQuery = null;
         }
 
-        /*
-        public void changeEndpoint(String endpoint) {
-            this.endpoint = endpoint;
-            this.invalidate();
+        GifDataSource(Context context, String rating, String searchQuery) {
+            this.context = context;
+            this.endpoint = SEARCH_ENDPOINT;
+            this.rating = rating;
+            this.searchQuery = searchQuery;
         }
-        */
 
         private JSONObject genericSearch(String... parameters) throws Exception {
-            String url = endpoint + "?api_key=" + GIPHY_API_KEY;
+            String url = endpoint + "?api_key=" + GIPHY_API_KEY + "&rating=" + rating;
+            if (searchQuery != null && endpoint.equals(SEARCH_ENDPOINT)) {
+                url += "&q=" + searchQuery; // TODO: Need to encode?
+            }
             for (String param : parameters) {
                 if (param == null) continue;
                 String[] split = param.split("=", 2);
@@ -206,7 +218,7 @@ class MyGiphyAdapter extends PagedListAdapter<MyGiphyAdapter.Gif, MyGiphyAdapter
         public void loadInitial(@NonNull LoadInitialParams params, @NonNull LoadInitialCallback<Gif> callback) {
             try {
                 Log.d(MainActivity.TAG, "loadInitial: requestedLoadSize " + params.requestedLoadSize + " placeholdersEnabled " + params.placeholdersEnabled);
-                JSONObject json = genericSearch("offset=0", "limit=" + params.requestedLoadSize, "rating=g");
+                JSONObject json = genericSearch("offset=0", "limit=" + params.requestedLoadSize);
                 int totalCount = getTotalCount(json);
                 int count = getCount(json);
                 Log.d(MainActivity.TAG, "loadInitial: count " + count);
@@ -243,7 +255,7 @@ class MyGiphyAdapter extends PagedListAdapter<MyGiphyAdapter.Gif, MyGiphyAdapter
         public void loadRange(@NonNull LoadRangeParams params, @NonNull LoadRangeCallback<Gif> callback) {
             Log.d(MainActivity.TAG, "loadAfter: startPosition " + params.startPosition + " loadSize " + params.loadSize);
             try {
-                JSONObject json = genericSearch("offset=" + params.startPosition, "limit=" + params.loadSize, "rating=g");
+                JSONObject json = genericSearch("offset=" + params.startPosition, "limit=" + params.loadSize);
                 int totalCount = getTotalCount(json);
                 int count = getCount(json);
                 Log.d(MainActivity.TAG, "loadAfter: count " + count);
@@ -263,12 +275,11 @@ class MyGiphyAdapter extends PagedListAdapter<MyGiphyAdapter.Gif, MyGiphyAdapter
             for (int i = 0; i < dataArray.length(); i++) {
                 JSONObject datum = (JSONObject) dataArray.get(i);
                 JSONObject images = datum.getJSONObject("images");
-                Gif gif = new Gif(pos);
-                gif.position = pos++; // TODO: Is this still needed?
+                Gif gif = new Gif(datum.getString("id"));
                 gif.thumbnail = getSmallestStill(images);
                 gif.fixedHeight = getImageInfo(images.getJSONObject("fixed_height"));
                 gifList.add(gif);
-                gif.name = datum.getString("title");
+                gif.title = datum.getString("title");
                 gif.thumbnailBytes = null;
                 if (gif.thumbnail != null) loadThumbnail(gif);
             }
@@ -323,7 +334,10 @@ class MyGiphyAdapter extends PagedListAdapter<MyGiphyAdapter.Gif, MyGiphyAdapter
     }
 
     public static class GifDataSourceFactory extends DataSource.Factory<Integer, Gif> {
-        Context context;
+        private Context context;
+        private String rating = "g";
+        private String searchQuery;
+        private GifDataSource latestSource;
 
         public GifDataSourceFactory(Context context) {
             this.context = context;
@@ -331,8 +345,23 @@ class MyGiphyAdapter extends PagedListAdapter<MyGiphyAdapter.Gif, MyGiphyAdapter
 
         @Override
         public DataSource<Integer, Gif> create() {
-            GifDataSource dataSource = new GifDataSource(context);
-            return dataSource;
+            if (searchQuery == null)
+                latestSource = new GifDataSource(context, rating);
+            else
+                latestSource = new GifDataSource(context, rating, searchQuery);
+            return latestSource;
+        }
+
+        public void setRating(String rating) {
+            this.rating = rating;
+        }
+
+        public void setSearchQuery(String query) {
+            this.searchQuery = query;
+        }
+
+        public void invalidate() {
+            if (latestSource != null) latestSource.invalidate();
         }
     }
 }
