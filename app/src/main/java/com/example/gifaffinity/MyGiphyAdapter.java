@@ -70,7 +70,7 @@ class MyGiphyAdapter extends PagedListAdapter<MyGiphyAdapter.Gif, MyGiphyAdapter
     @Override
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
         final Gif gif = getItem(position);
-        Log.d(MainActivity.TAG, "onBindViewHolder(position " + position + ", gif " + gif + ")");
+        // Log.d(TAG, "onBindViewHolder(position " + position + ", gif " + gif + ")");
         if (gif != null) {
             holder.text.setVisibility(View.GONE);
             holder.image.setVisibility(View.VISIBLE);
@@ -99,7 +99,7 @@ class MyGiphyAdapter extends PagedListAdapter<MyGiphyAdapter.Gif, MyGiphyAdapter
                 @Override
                 public void onClick(View v) {
                     Intent gifViewIntent = new Intent(context, GifViewActivity.class);
-                    gifViewIntent.setData(Uri.parse(gif.fixedHeight.url));
+                    gifViewIntent.setData(Uri.parse(gif.fullscreen.url));
                     gifViewIntent.putExtra("title", gif.title);
                     context.startActivity(gifViewIntent);
                 }
@@ -144,7 +144,8 @@ class MyGiphyAdapter extends PagedListAdapter<MyGiphyAdapter.Gif, MyGiphyAdapter
     static class Gif {
         ImageInfo thumbnail; // placeholder
         byte[] thumbnailBytes; // bytes needed to create the placeholder still image
-        ImageInfo fixedHeight;
+        ImageInfo fixedHeight; // for grid display
+        ImageInfo fullscreen; // for full-screen display
         String title; // title of the image
         String id; // unique id for the image
         Call call; // okhttp call
@@ -278,6 +279,7 @@ class MyGiphyAdapter extends PagedListAdapter<MyGiphyAdapter.Gif, MyGiphyAdapter
                 Gif gif = new Gif(datum.getString("id"));
                 gif.thumbnail = getSmallestStill(images);
                 gif.fixedHeight = getImageInfo(images.getJSONObject("fixed_height"));
+                gif.fullscreen = getImageInfo(images.getJSONObject("downsized"));
                 gifList.add(gif);
                 gif.title = datum.getString("title");
                 gif.thumbnailBytes = null;
