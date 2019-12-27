@@ -46,7 +46,7 @@ public class MainActivity extends AppCompatActivity {
 
         recyclerView.setLayoutManager(new StaggeredGridLayoutManager(2, StaggeredGridLayoutManager.VERTICAL));
         adapter = new MyGiphyAdapter(this);
-        PagedList.Config config = new PagedList.Config.Builder().setPageSize(75).build();
+        PagedList.Config config = new PagedList.Config.Builder().setPageSize(50).build();
         factory = new MyGiphyAdapter.GifDataSourceFactory(this);
         LiveData<PagedList<Gif>> gifs = new LivePagedListBuilder<Integer, Gif>(factory, config).build();
         gifs.observe(this, new Observer<PagedList<Gif>>() {
