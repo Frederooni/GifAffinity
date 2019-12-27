@@ -6,13 +6,6 @@
         android:layout_margin="3dp"
         tools:context=".MainActivity">
 
-    <TextView
-            android:id="@+id/gif_text"
-            android:layout_gravity="center"
-            android:gravity="center"
-            android:layout_width="match_parent"
-            android:layout_height="100dp" />
-
     <ImageView
             android:id="@+id/gif_image"
             android:layout_width="match_parent"

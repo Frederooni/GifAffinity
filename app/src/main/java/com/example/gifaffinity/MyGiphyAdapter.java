@@ -45,12 +45,10 @@ class MyGiphyAdapter extends PagedListAdapter<MyGiphyAdapter.Gif, MyGiphyAdapter
     Context context;
 
     class ViewHolder extends RecyclerView.ViewHolder {
-        TextView text;
         ImageView image;
 
         public ViewHolder(@NonNull View itemView) {
             super(itemView);
-            text = itemView.findViewById(R.id.gif_text);
             image = itemView.findViewById(R.id.gif_image);
         }
     }
@@ -72,7 +70,6 @@ class MyGiphyAdapter extends PagedListAdapter<MyGiphyAdapter.Gif, MyGiphyAdapter
         final Gif gif = getItem(position);
         // Log.d(TAG, "onBindViewHolder(position " + position + ", gif " + gif + ")");
         if (gif != null) {
-            holder.text.setVisibility(View.GONE);
             holder.image.setVisibility(View.VISIBLE);
             Drawable placeholderDrawable = null;
             byte[] thumbnailBytes;
@@ -105,10 +102,7 @@ class MyGiphyAdapter extends PagedListAdapter<MyGiphyAdapter.Gif, MyGiphyAdapter
                 }
             });
         } else {
-            // This should never happen
-            holder.text.setText("Error at position " + Integer.toString(position));
-            holder.image.setVisibility(View.GONE);
-            holder.text.setVisibility(View.VISIBLE);
+            // We can get here if we are far down in the list and then change the rating
         }
     }
 
